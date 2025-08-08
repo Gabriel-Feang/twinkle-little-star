@@ -62,10 +62,13 @@ player.isFat = false -- pizza
 local hook = {
   active = false,
   attached = false,
+  hasAnchor = false,
   ax = 0,
   ay = 0,
   dirx = 0,
   diry = 0,
+  startx = 0,
+  starty = 0,
   tipx = 0,
   tipy = 0,
   length = 0,
@@ -830,11 +833,11 @@ function love.update(dt)
       if hook.phase == "extending" then
         -- move tip forward
         hook.length = math.min(hook.maxLength, hook.length + hook.speed * dt)
-        hook.tipx = player.x + hook.dirx * hook.length
-        hook.tipy = player.y + hook.diry * hook.length
+        hook.tipx = hook.startx + hook.dirx * hook.length
+        hook.tipy = hook.starty + hook.diry * hook.length
         -- check attach if target reached
-        local reachedAx = length(hook.tipx - hook.ax, hook.tipy - hook.ay) <= 6
-        if reachedAx then
+        local reachedAx = length(hook.tipx - hook.ax, hook.tipy - hook.ay) <= 8
+        if hook.hasAnchor and reachedAx then
           hook.phase = "attached"
           hook.attached = true
         elseif hook.length >= hook.maxLength then
@@ -846,7 +849,7 @@ function love.update(dt)
         local dy = hook.ay - player.y
         local dist = math.max(1e-6, length(dx, dy))
         local dirx, diry = dx / dist, dy / dist
-        local pull = 700
+        local pull = 850
         player.vx = player.vx + dirx * pull * dt
         player.vy = player.vy + diry * pull * dt
         -- rope line from player to anchor
@@ -1070,7 +1073,9 @@ local function tryStartHook()
   hook.active = true
   hook.phase = "extending"
   hook.attached = false
+  hook.hasAnchor = false
   hook.dirx, hook.diry = dirx, diry
+  hook.startx, hook.starty = player.x, player.y
   hook.tipx, hook.tipy = player.x, player.y
   hook.length = 0
   hook.maxLength = maxLen
@@ -1089,8 +1094,10 @@ local function tryStartHook()
   end
   if bestT then
     hook.ax, hook.ay = bestAx, bestAy
+    hook.hasAnchor = true
   else
     hook.ax, hook.ay = player.x + dirx * maxLen, player.y + diry * maxLen
+    hook.hasAnchor = false
   end
 end
 
