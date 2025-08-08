@@ -59,7 +59,21 @@ player.hasShield = false -- blue ball
 player.hasGrapple = false
 player.isFat = false -- pizza
 
-local hook = { active = false, ax = 0, ay = 0, maxLength = 0, curLength = 0 }
+local hook = {
+  active = false,
+  attached = false,
+  ax = 0,
+  ay = 0,
+  dirx = 0,
+  diry = 0,
+  tipx = 0,
+  tipy = 0,
+  length = 0,
+  maxLength = 0,
+  speed = 900,
+  retractSpeed = 600,
+  phase = "idle", -- "extending" | "attached" | "retracting"
+}
 local HOOK_BASE_STARS = 5
 local HOOK_PER_BABY_STARS = 1
 
@@ -811,20 +825,50 @@ function love.update(dt)
     player.x = player.x + player.vx * dt
     player.y = player.y + player.vy * dt
 
-    -- Grapple rope constraint/pull
+    -- Grapple rope update: extend, attach, pull, retract
     if hook.active then
-      local dx = hook.ax - player.x
-      local dy = hook.ay - player.y
-      local dist = length(dx, dy)
-      if dist <= 2 or dist < 1e-6 then
-        -- close enough; do nothing
-      else
+      if hook.phase == "extending" then
+        -- move tip forward
+        hook.length = math.min(hook.maxLength, hook.length + hook.speed * dt)
+        hook.tipx = player.x + hook.dirx * hook.length
+        hook.tipy = player.y + hook.diry * hook.length
+        -- check attach if target reached
+        local reachedAx = length(hook.tipx - hook.ax, hook.tipy - hook.ay) <= 6
+        if reachedAx then
+          hook.phase = "attached"
+          hook.attached = true
+        elseif hook.length >= hook.maxLength then
+          hook.phase = "retracting"
+        end
+      elseif hook.phase == "attached" then
+        -- Pull towards anchor while preserving momentum; simple springy pull
+        local dx = hook.ax - player.x
+        local dy = hook.ay - player.y
+        local dist = math.max(1e-6, length(dx, dy))
         local dirx, diry = dx / dist, dy / dist
-        if dist > hook.curLength then
-          -- apply pull force towards anchor
-          local pull = 800 -- tune pull strength
-          player.vx = player.vx + dirx * pull * dt
-          player.vy = player.vy + diry * pull * dt
+        local pull = 700
+        player.vx = player.vx + dirx * pull * dt
+        player.vy = player.vy + diry * pull * dt
+        -- rope line from player to anchor
+        hook.tipx, hook.tipy = hook.ax, hook.ay
+        -- auto detach if we land or get very close
+        if player.grounded or dist < player.radius + 4 then
+          hook.phase = "retracting"
+          hook.attached = false
+        end
+      elseif hook.phase == "retracting" then
+        -- retract tip back to player
+        local dx = player.x - hook.tipx
+        local dy = player.y - hook.tipy
+        local d = length(dx, dy)
+        if d < 6 then
+          hook.active = false
+          hook.phase = "idle"
+        else
+          local dirx, diry = dx / d, dy / d
+          local step = hook.retractSpeed * dt
+          hook.tipx = hook.tipx + dirx * step
+          hook.tipy = hook.tipy + diry * step
         end
       end
     end
@@ -975,7 +1019,7 @@ function love.keypressed(key)
     generateAsteroids()
     resetPlayer()
     player.hasShield = false
-    player.hasGrapple = false
+    player.hasGrapple = true
     player.isFat = false
     player.radius = player.baseRadius
     hook.active = false
@@ -1022,6 +1066,16 @@ local function tryStartHook()
   -- compute max rope length in world units using star units based on base radius
   local starUnit = player.baseRadius * 2
   local maxLen = (HOOK_BASE_STARS + collectedBabies * HOOK_PER_BABY_STARS) * starUnit
+
+  hook.active = true
+  hook.phase = "extending"
+  hook.attached = false
+  hook.dirx, hook.diry = dirx, diry
+  hook.tipx, hook.tipy = player.x, player.y
+  hook.length = 0
+  hook.maxLength = maxLen
+
+  -- Precompute first valid intersection within maxLen
   local bestT, bestAx, bestAy = nil, nil, nil
   for _, w in ipairs(worlds) do
     local t = rayCircleIntersection(player.x, player.y, dirx, diry, w.x, w.y, w.radius)
@@ -1034,10 +1088,9 @@ local function tryStartHook()
     end
   end
   if bestT then
-    hook.active = true
     hook.ax, hook.ay = bestAx, bestAy
-    hook.maxLength = maxLen
-    hook.curLength = bestT
+  else
+    hook.ax, hook.ay = player.x + dirx * maxLen, player.y + diry * maxLen
   end
 end
 
@@ -1137,10 +1190,12 @@ function love.draw()
   if hook.active then
     love.graphics.setColor(0.85, 0.85, 0.3, 0.9)
     love.graphics.setLineWidth(2)
-    love.graphics.line(player.x, player.y, hook.ax, hook.ay)
+    local hx = (hook.phase == "attached") and hook.ax or hook.tipx
+    local hy = (hook.phase == "attached") and hook.ay or hook.tipy
+    love.graphics.line(player.x, player.y, hx, hy)
     love.graphics.push()
-    love.graphics.translate(hook.ax, hook.ay)
-    local da = math.atan2(hook.ay - player.y, hook.ax - player.x)
+    love.graphics.translate(hx, hy)
+    local da = math.atan2(hy - player.y, hx - player.x)
     love.graphics.rotate(da)
     love.graphics.setColor(0.95, 0.95, 0.5)
     love.graphics.polygon("fill", -6, -3, -6, 3, 0, 0)
