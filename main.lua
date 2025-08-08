@@ -360,12 +360,8 @@ end
 
 -- Input helpers
 local function getMoveInput()
-  local left = love.keyboard.isDown("left") or love.keyboard.isDown("a")
-  local right = love.keyboard.isDown("right") or love.keyboard.isDown("d")
-  local move = 0
-  if left then move = move - 1 end
-  if right then move = move + 1 end
-  return move
+  -- Movement disabled: only grappling hook control
+  return 0
 end
 
 local function jumpPressed(key)
@@ -585,6 +581,8 @@ function love.load()
   generatePowerups()
   generateAsteroids()
   resetPlayer()
+  -- Start with grappling hook
+  player.hasGrapple = true
 
   camera.x, camera.y = player.x, player.y
 
@@ -604,12 +602,12 @@ function love.load()
     return src
   end
 
-  -- SFX
-  audio.sfxJump = makeTone(620, 0.18, 0.5, 10)
-  audio.sfxLand = makeTone(180, 0.22, 0.5, 8)
-  audio.sfxCollect = makeTone(880, 0.14, 0.5, 14)
-  audio.sfxBabyCry = makeTone(520, 0.20, 0.4, 9)
-  audio.sfxExplosion = makeTone(80, 0.6, 0.7, 4)
+  -- Disable all SFX: music only
+  audio.sfxJump = nil
+  audio.sfxLand = nil
+  audio.sfxCollect = nil
+  audio.sfxBabyCry = nil
+  audio.sfxExplosion = nil
 
   -- Procedural loop: soft clockwork beat + childlike pentatonic motif
   do
@@ -633,11 +631,8 @@ function love.load()
       -- pad: slow detuned sines
       local pad = 0.03 * math.sin(2 * math.pi * (note/2) * t)
                  + 0.03 * math.sin(2 * math.pi * (note/2 * 1.01) * t)
-      -- clockwork: tick on quarters
-      local quarter = math.floor((i / rate) / (60 / bpm))
-      local tickPhase = (i % math.floor(rate * 60 / bpm)) / (rate * 60 / bpm)
-      local tick = (tickPhase < 0.02) and (0.20 * math.exp(-tickPhase * 80)) or 0
-      local l = lead + pad + tick
+      -- No ticking/beeping overlay
+      local l = lead + pad
       local r = lead + pad
       data:setSample(i, 1, l)
       data:setSample(i, 2, r)
@@ -738,7 +733,7 @@ function love.update(dt)
     return
   end
 
-  -- Movement input
+  -- Movement input (disabled -> 0)
   local move = getMoveInput()
 
   if player.grounded and player.currentWorld then
@@ -753,16 +748,10 @@ function love.update(dt)
     -- Decompose velocity into tangent only
     local tanSpeed = dot(player.vx, player.vy, tx, ty)
 
-    -- Apply input acceleration
-    tanSpeed = tanSpeed + move * player.accelerationTangent * dt
-    tanSpeed = clamp(tanSpeed, -player.maxSpeedTangent, player.maxSpeedTangent)
-
-    -- Friction when no input
-    if move == 0 then
-      local sign = (tanSpeed >= 0) and 1 or -1
-      local mag = math.max(0, math.abs(tanSpeed) - player.frictionTangent * dt)
-      tanSpeed = mag * sign
-    end
+    -- No manual input acceleration; friction to rest
+    local sign = (tanSpeed >= 0) and 1 or -1
+    local mag = math.max(0, math.abs(tanSpeed) - player.frictionTangent * dt)
+    tanSpeed = mag * sign
 
     -- Reconstruct velocity and advance position along the surface by angle
     player.vx = tx * tanSpeed
@@ -807,14 +796,10 @@ function love.update(dt)
       local tanSpeed = dot(player.vx, player.vy, tx, ty)
       local radialSpeed = dot(player.vx, player.vy, nx, ny)
 
-      tanSpeed = tanSpeed + move * player.airAccelerationTangent * dt
-      tanSpeed = clamp(tanSpeed, -player.maxAirSpeedTangent, player.maxAirSpeedTangent)
-
-      if move == 0 then
-        local sign = (tanSpeed >= 0) and 1 or -1
-        local mag = math.max(0, math.abs(tanSpeed) - player.airDrag * dt)
-        tanSpeed = mag * sign
-      end
+      -- No manual input in air; apply drag only
+      local sign = (tanSpeed >= 0) and 1 or -1
+      local mag = math.max(0, math.abs(tanSpeed) - player.airDrag * dt)
+      tanSpeed = mag * sign
 
       player.vx = tx * tanSpeed + nx * radialSpeed
       player.vy = ty * tanSpeed + ny * radialSpeed
@@ -862,10 +847,7 @@ function love.update(dt)
     end
   end
 
-  -- Jump input (edge-triggered)
-  if love.keyboard.isDown("space") or love.keyboard.isDown("w") or love.keyboard.isDown("up") or love.keyboard.isDown("z") then
-    -- handled in keypressed for edge, but also allow buffered jump on first frame of landing
-  end
+  -- No jump input
 
   -- Win / interactions
   -- Win only if all babies collected and touching black hole
@@ -1002,21 +984,7 @@ function love.keypressed(key)
 
   if game.state ~= "playing" then return end
 
-  if jumpPressed(key) and player.grounded and player.currentWorld then
-    local w = player.currentWorld
-    local dx = player.x - w.x
-    local dy = player.y - w.y
-    local dist = math.max(1e-6, length(dx, dy))
-    local nx, ny = dx / dist, dy / dist
-    local tx, ty = perpendicular(nx, ny)
-    local tanSpeed = dot(player.vx, player.vy, tx, ty)
-
-    player.vx = tx * tanSpeed + nx * player.jumpSpeed
-    player.vy = ty * tanSpeed + ny * player.jumpSpeed
-    player.grounded = false
-    player.currentWorld = nil
-    if audio.sfxJump then audio.sfxJump:stop(); audio.sfxJump:play() end
-  end
+  -- Jump disabled: only grappling hook
 end
 
 -- Mouse handling for grappling hook
@@ -1222,7 +1190,7 @@ function love.draw()
   -- UI
   local uiY = 16
   love.graphics.setColor(1, 1, 1)
-  love.graphics.print("Move: A/D or Left/Right    Jump: W/Up/Space/Z    Hook: LMB    Reset: R", 16, uiY)
+  love.graphics.print("Hook: Left Mouse    Reset: R", 16, uiY)
   love.graphics.print(string.format("Babies: %d / %d", collectedBabies, totalBabies), 16, uiY + 22)
   local status = {}
   if player.hasShield then status[#status+1] = "Shield" end
