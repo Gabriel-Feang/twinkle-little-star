@@ -1113,7 +1113,11 @@ function love.draw()
   for _, a in ipairs(asteroids) do
     local ax, ay
     if a.capturedBy then
-      ax, ay = a.x, a.y
+      local w = a.capturedBy
+      local r = (a.orbitRadius or (w.radius + 100 + (a.size or 16)))
+      local ang = a.angle or 0
+      ax = w.x + math.cos(ang) * r
+      ay = w.y + math.sin(ang) * r
     else
       ax = blackHole.x + math.cos(a.angle) * a.orbitRadius
       ay = blackHole.y + math.sin(a.angle) * a.orbitRadius
